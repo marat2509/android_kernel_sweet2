@@ -1339,7 +1339,7 @@ int dsi_display_set_power(struct drm_connector *connector,
 {
 	struct dsi_display *display = disp;
 	int rc = 0;
-	struct msm_drm_notifier g_notify_data;
+	struct msm_drm_notifier notify_data;
 	struct drm_device *dev = NULL;
 	int event = 0;
 
@@ -1354,7 +1354,8 @@ int dsi_display_set_power(struct drm_connector *connector,
 	}
 	dev = connector->dev;
 	event = dev->doze_state;
-	g_notify_data.data = &event;
+	notify_data.data = &power_mode;
+	notify_data.id = MSM_DRM_PRIMARY_DISPLAY;
 
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
