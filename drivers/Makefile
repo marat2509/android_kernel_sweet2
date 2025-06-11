@@ -7,6 +7,7 @@
 #
 
 subdir-ccflags-y += -D__XIAOMI_CAMERA__
+ccflags-y += -O3
 
 obj-y				+= irqchip/
 obj-y				+= bus/
