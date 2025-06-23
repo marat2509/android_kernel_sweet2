@@ -1,81 +1,87 @@
 #!/bin/bash
-#
-# Compile script for kernel
-#
 
-SECONDS=0 # builtin bash timer
+set -e
 
-# Allowed codenames
-ALLOWED_CODENAMES=("sweet" "courbet" "tucana" "toco" "phoenix" "davinci")
+# Install required packages
+sudo apt-get update
+sudo apt-get install -y bc cpio ccache gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu build-essential flex bison libelf-dev libssl-dev python3 lld curl git
 
-# Prompt user for device codename
-read -p "Enter device codename: " DEVICE
+# Ask for AOSP or OEM
+read -p "Enter build type (aosp/oem): " buildtype
+buildtype_lower=$(echo "$buildtype" | tr '[:upper:]' '[:lower:]')
 
-# Check if the entered codename is in the allowed list
-if [[ ! " ${ALLOWED_CODENAMES[@]} " =~ " ${DEVICE} " ]]; then
-    echo "Error: Invalid codename. Allowed codenames are: ${ALLOWED_CODENAMES[*]}"
+# Set zip name
+if [[ "$buildtype_lower" == "aosp" ]]; then
+    ZIPNAME="AOSP-MeMeDo-sweet_k6a-$(date '+%Y%m%d').zip"
+else
+    ZIPNAME="MIUI-OOS-MeMeDo-sweet_k6a-$(date '+%Y%m%d').zip"
+fi
+
+# Download Clang and GCC toolchains
+if [ ! -d clang ]; then
+    mkdir clang
+    curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz
+    tar -xf clang-r547379.tar.gz -C clang/
+    rm clang-r547379.tar.gz
+fi
+
+if [ ! -d gcc64 ]; then
+    git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 gcc64
+fi
+
+if [ ! -d gcc32 ]; then
+    git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 gcc32
+fi
+
+# Setup environment
+export ARCH=arm64
+export PATH="${PWD}/clang/bin:${PWD}/gcc64/bin:${PWD}/gcc32/bin:${PATH}"
+export KBUILD_BUILD_USER=build-user
+export KBUILD_BUILD_HOST=build-host
+export KBUILD_COMPILER_STRING="${PWD}/clang"
+export LLVM=1 
+export LLVM_IAS=1
+export CLANG_TRIPLE=aarch64-linux-gnu-
+export CROSS_COMPILE=aarch64-linux-android-
+export CROSS_COMPILE_COMPAT=arm-linux-androideabi-
+
+# Build directory
+
+# Kernel compilation
+make O=out sweet_defconfig
+make -j$(nproc --all) O=out CC=clang 2>&1 | tee build.log
+
+# Save config for reference
+cp out/.config out/sweet_defconfig.txt
+
+# Check output
+KERNEL_IMG="out/arch/arm64/boot/Image.gz"
+DTBO_IMG="out/arch/arm64/boot/dtbo.img"
+DTB_IMG="out/arch/arm64/boot/dtb.img"
+
+if [[ ! -f "$KERNEL_IMG" || ! -f "$DTBO_IMG" || ! -f "$DTB_IMG" ]]; then
+    echo -e "\n❌ Build failed. Missing output image(s)."
     exit 1
 fi
 
-ZIPNAME="${DEVICE}-$(date '+%Y%m%d-%H%M').zip"
-
-export ARCH=arm64
-export KBUILD_BUILD_USER=aryan
-export KBUILD_BUILD_HOST=celeste
-export PATH="/home/celeste/aryan/linux-x86/clang-r510928/bin/:$PATH"
-
-if [[ $1 = "-c" || $1 = "--clean" ]]; then
-	rm -rf out
-	echo "Cleaned output folder"
-fi
-
-echo -e "\nStarting compilation for $DEVICE...\n"
-make O=out ARCH=arm64 ${DEVICE}_defconfig
-make -j$(nproc) \
-    O=out \
-    ARCH=arm64 \
-    LLVM=1 \
-    LLVM_IAS=1 \
-    CROSS_COMPILE=aarch64-linux-gnu- \
-    CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-
-kernel="out/arch/arm64/boot/Image.gz"
-dtbo="out/arch/arm64/boot/dtbo.img"
-dtb="out/arch/arm64/boot/dtb.img"
-
-if [ ! -f "$kernel" ] || [ ! -f "$dtbo" ] || [ ! -f "$dtb" ]; then
-	echo -e "\nCompilation failed!"
-	exit 1
-fi
-
-echo -e "\nKernel compiled successfully! Zipping up...\n"
-
-if [ -d "$AK3_DIR" ]; then
-	cp -r $AK3_DIR AnyKernel3
-else
-	if ! git clone -q https://github.com/basamaryan/AnyKernel3 -b master AnyKernel3; then
-		echo -e "\nAnyKernel3 repo not found locally and couldn't clone from GitHub! Aborting..."
-		exit 1
-	fi
-fi
-
-# Modify anykernel.sh to replace device names
-sed -i "s/device\.name1=.*/device.name1=${DEVICE}/" AnyKernel3/anykernel.sh
-sed -i "s/device\.name2=.*/device.name2=${DEVICE}in/" AnyKernel3/anykernel.sh
-
-cp $kernel AnyKernel3
-cp $dtbo AnyKernel3
-cp $dtb AnyKernel3
-cd AnyKernel3
-zip -r9 "../$ZIPNAME" * -x .git
-cd ..
+# Prepare AnyKernel3
 rm -rf AnyKernel3
-echo -e "\nCompleted in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
-echo "Zip: $ZIPNAME"
+git clone https://github.com/MiDoNaSR545/AnyKernel3
 
-if test -z "$(git rev-parse --show-cdup 2>/dev/null)" &&
-   head=$(git rev-parse --verify HEAD 2>/dev/null); then
-	HASH="$(echo $head | cut -c1-8)"
+cp $KERNEL_IMG AnyKernel3
+cp $DTBO_IMG AnyKernel3
+cp $DTB_IMG AnyKernel3
+
+cd AnyKernel3
+zip -r9 "../$ZIPNAME" * -x .git README.md
+cd ..
+
+echo -e "\n✅ Kernel built and packed as: $ZIPNAME"
+
+# Upload the file using transfer.sh (25 MB+ limit)
+if command -v curl &> /dev/null; then
+    echo -e "\n📤 Uploading via transfer.sh..."
+    curl -u ":$PIXELDRAIN_API_KEY" -F "file=@$ZIPNAME" https://pixeldrain.com/api/file
+else
+    echo -e "\n⚠️ curl not installed or transfer.sh unavailable. File not uploaded."
 fi
-
-telegram -f $ZIPNAME -M "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) ! Latest commit: $HASH"
