@@ -3,7 +3,7 @@ VERSION = 4
 PATCHLEVEL = 14
 SUBLEVEL = 356
 EXTRAVERSION = -openela-rc1
-NAME = MeMeDo ⚡
+NAME = qgki
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -281,7 +281,7 @@ include scripts/Kbuild.include
 
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
-KERNELVERSION = 5$(if 4,.4$(if 294,.294))
+KERNELVERSION = 5.4.294
 export VERSION PATCHLEVEL SUBLEVEL KERNELRELEASE KERNELVERSION
 
 # SUBARCH tells the usermode build what the underlying arch is.  That is set
